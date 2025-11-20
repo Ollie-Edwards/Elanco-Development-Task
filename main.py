@@ -1,8 +1,38 @@
 from fastapi import FastAPI, HTTPException
 import sqlite3
 from datetime import datetime
+from enum import Enum
 
 app = FastAPI()
+
+class LocationEnum(str, Enum):
+    Birmingham = "Birmingham"
+    Bristol = "Bristol"
+    Cardiff = "Cardiff"
+    Edinburgh = "Edinburgh"
+    Glasgow = "Glasgow"
+    Leeds = "Leeds"
+    Leicester = "Leicester"
+    Liverpool = "Liverpool"
+    London = "London"
+    Manchester = "Manchester"
+    Newcastle = "Newcastle"
+    Nottingham = "Nottingham"
+    Sheffield = "Sheffield"
+    Southampton = "Southampton"
+
+class SpeciesEnum(str, Enum):
+    FoxBadger = "Fox/badger tick"
+    Marsh = "Marsh tick"
+    Passerine = "Passerine tick"
+    SouthernRodent = "Southern rodent tick"
+    TreeHole = "Tree-hole tick"
+
+class IntervalEnum(str, Enum):
+    daily = "daily"
+    weekly = "weekly"
+    monthly = "monthly"
+    yearly = "yearly"
 
 def create_connection():
   connection = sqlite3.connect("database.db")
@@ -16,8 +46,8 @@ async def root():
 def getSightings(
    startDate: datetime | None = None,
    endDate: datetime | None = None,
-   location: str | None = None,
-   species: str | None = None,
+   location: LocationEnum | None = None,
+   species: SpeciesEnum | None = None,
 ):
 
   connection = create_connection()
@@ -56,13 +86,10 @@ def getSightings(
 
 @app.get("/analytics/num_sightings/")
 def getSightingsByRegion(
-    interval: str,
-    location: str | None = None,
-    species: str | None = None,
+    interval: IntervalEnum,
+    location: LocationEnum | None = None,
+    species: SpeciesEnum | None = None,
 ):
-  
-  if interval not in ["daily", "weekly", "monthly", "yearly"]:
-    raise HTTPException(status_code=422, detail="Invalid interval")  
 
   match interval:
     case "daily":
