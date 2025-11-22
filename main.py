@@ -71,7 +71,9 @@ def CreateDB():
             location TEXT NOT NULL,
             species TEXT NOT NULL,
             latinName TEXT NOT NULL
-        )
+
+            UNIQUE(date, location, species, latinName)
+        );
         """
     )
     conn.commit()
@@ -92,7 +94,7 @@ def loadData():
     except Exception as e:
         print("Error reading spreadsheet:", e)
         return
-    
+
     # Ensure that location, species and latin name match the required enums, remove entires with non valid locations and species
     locations = set([item.value for item in LocationEnum])
     species = set([item.value for item in SpeciesEnum])
@@ -101,7 +103,7 @@ def loadData():
     df = df[df["location"].isin(locations)]
     df = df[df["species"].isin(species)]
     df = df[df["latinName"].isin(latinName)]
-    
+
     # Remove rows with missing values
     requiredCols = ["date", "location", "species", "latinName"]
     df = df[requiredCols]
@@ -110,12 +112,16 @@ def loadData():
     # Ensure provided dates are valid, remove any rows with invalid dates
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"])
-    
+
     # Convert to ISO string
     df["date"] = df["date"].dt.strftime("%Y-%m-%d %H:%M:%S")
 
     # Convert dataframe to list of tuples
-    data_tuples = list(df[["date", "location", "species", "latinName"]].itertuples(index=False, name=None))
+    data_tuples = list(
+        df[["date", "location", "species", "latinName"]].itertuples(
+            index=False, name=None
+        )
+    )
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -125,12 +131,13 @@ def loadData():
         INSERT INTO TickSightings (date, location, species, latinName)
         VALUES (?, ?, ?, ?)
         """,
-        data_tuples
+        data_tuples,
     )
 
     conn.commit()
     conn.close()
     print(f"Imported {len(data_tuples)} rows from spreadsheet.")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -157,7 +164,7 @@ def getSightings(
     endDate: datetime | None = None,
     location: LocationEnum | None = None,
     species: SpeciesEnum | None = None,
-    limit: int = Query(default=10, le=500)
+    limit: int = Query(default=10, le=500),
 ):
 
     connection = sqlite3.connect(DB_PATH)
@@ -187,18 +194,20 @@ def getSightings(
 
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
-    
+
     query += " LIMIT " + str(limit)
 
     res = cursor.execute(query, filterParams).fetchall()
-
     connection.close()
+
+    if not res:
+        raise HTTPException(status_code=404, detail="No sightings were found")
 
     return [dict(row) for row in res]
 
 
 @app.get("/analytics/num_sightings_by_interval")
-def getSightingsByInInterval(
+def getSightingsByInterval(
     interval: IntervalEnum,
     location: LocationEnum | None = None,
     species: SpeciesEnum | None = None,
@@ -244,33 +253,38 @@ def getSightingsByInInterval(
     res = cursor.execute(query, filterParams).fetchall()
     connection.close()
 
+    if not res:
+        raise HTTPException(status_code=404, detail="No sightings intervals were found")
+
     return [dict(row) for row in res]
 
 
 @app.get("/analytics/num_sightings_per_region/")
-def getSightingsByInInterval():
+def getSightingsPerRegion():
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
     cursor = connection.cursor()
 
     res = cursor.execute(
         """
-    SELECT location, COUNT(*) as count
-    FROM TickSightings
-    GROUP BY location
-  """
+        SELECT location, COUNT(*) as count
+        FROM TickSightings
+        GROUP BY location
+    """
     ).fetchall()
 
     return [dict(row) for row in res]
 
 
 @app.post("/sighting")
-def getSightingsByInInterval(
+def addSighting(
     location: LocationEnum,
     species: SpeciesEnum,
     latinName: LatinNameEnum,
-    date: datetime | None = dt.datetime.now(),
+    date: datetime | None = None,
 ):
+    if date is None:
+        date = dt.datetime.now()
 
     if latinName != latinNameDictionary[species]:
         raise HTTPException(
@@ -283,8 +297,10 @@ def getSightingsByInInterval(
 
     res = cursor.execute(
         """
-  INSERT INTO TickSightings (date, location, species, latinName)
-  VALUES (?, ?, ?, ?) 
-  """,
+            INSERT INTO TickSightings (date, location, species, latinName)
+            VALUES (?, ?, ?, ?) 
+        """,
         [date, location, species, latinName],
     )
+
+    return {"message": "Success"}
