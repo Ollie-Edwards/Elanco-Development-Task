@@ -5,6 +5,7 @@ from enum import Enum
 
 app = FastAPI()
 
+
 class LocationEnum(str, Enum):
     Birmingham = "Birmingham"
     Bristol = "Bristol"
@@ -21,6 +22,7 @@ class LocationEnum(str, Enum):
     Sheffield = "Sheffield"
     Southampton = "Southampton"
 
+
 class SpeciesEnum(str, Enum):
     FoxBadger = "Fox/badger tick"
     Marsh = "Marsh tick"
@@ -28,107 +30,129 @@ class SpeciesEnum(str, Enum):
     SouthernRodent = "Southern rodent tick"
     TreeHole = "Tree-hole tick"
 
+
 class IntervalEnum(str, Enum):
     daily = "daily"
     weekly = "weekly"
     monthly = "monthly"
     yearly = "yearly"
 
+
 def create_connection():
-  connection = sqlite3.connect("database.db")
-  return connection
+    connection = sqlite3.connect("database.db")
+    return connection
+
 
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
 
+
 @app.get("/sightings")
 def getSightings(
-   startDate: datetime | None = None,
-   endDate: datetime | None = None,
-   location: LocationEnum | None = None,
-   species: SpeciesEnum | None = None,
+    startDate: datetime | None = None,
+    endDate: datetime | None = None,
+    location: LocationEnum | None = None,
+    species: SpeciesEnum | None = None,
 ):
 
-  connection = create_connection()
-  connection.row_factory = sqlite3.Row
-  cursor = connection.cursor()
+    connection = create_connection()
+    connection.row_factory = sqlite3.Row
+    cursor = connection.cursor()
 
-  query = "SELECT * FROM TickSightings"
+    query = "SELECT * FROM TickSightings"
 
-  conditions = []
-  filterParams = []
+    conditions = []
+    filterParams = []
 
-  if startDate:
-    conditions.append("DATETIME(date) >= (?)")
-    filterParams.append(startDate)
-     
-  if endDate:
-    conditions.append("DATETIME(date) <= (?)")
-    filterParams.append(endDate)
+    if startDate:
+        conditions.append("DATETIME(date) >= (?)")
+        filterParams.append(startDate)
 
-  if location:
-    conditions.append("location = (?)")
-    filterParams.append(location)
+    if endDate:
+        conditions.append("DATETIME(date) <= (?)")
+        filterParams.append(endDate)
 
-  if species:
-    conditions.append("species = (?)")
-    filterParams.append(species)  
+    if location:
+        conditions.append("location = (?)")
+        filterParams.append(location)
 
-  if conditions:
-    query += " WHERE " + "AND ".join(conditions)
+    if species:
+        conditions.append("species = (?)")
+        filterParams.append(species)
 
-  res = cursor.execute(query, filterParams).fetchall()
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
 
-  connection.close()
+    res = cursor.execute(query, filterParams).fetchall()
 
-  return [dict(row) for row in res]
+    connection.close()
 
-@app.get("/analytics/num_sightings/")
-def getSightingsByRegion(
+    return [dict(row) for row in res]
+
+
+@app.get("/analytics/num_sightings_by_interval")
+def getSightingsByInInterval(
     interval: IntervalEnum,
     location: LocationEnum | None = None,
     species: SpeciesEnum | None = None,
 ):
 
-  match interval:
-    case "daily":
-      strf_format = "%Y-%m-%d"
-    case "weekly":
-      strf_format = "%Y-%W"
-    case "monthly":
-      strf_format = "%Y-%m"
-    case "yearly":
-      strf_format = "%Y"
+    match interval:
+        case "daily":
+            strf_format = "%Y-%m-%d"
+        case "weekly":
+            strf_format = "%Y-%W"
+        case "monthly":
+            strf_format = "%Y-%m"
+        case "yearly":
+            strf_format = "%Y"
 
-  query  = f"""
+    query = f"""
     SELECT 
       strftime(?, date) AS year_week,
       COUNT(*) AS num_sightings
     FROM TickSightings
   """
 
-  conditions = []
-  filterParams = [strf_format]
-  
-  if location:
-    conditions.append("location = (?)")
-    filterParams.append(location)
+    conditions = []
+    filterParams = [strf_format]
 
-  if species:
-    conditions.append("species = (?)")
-    filterParams.append(species)  
+    if location:
+        conditions.append("location = (?)")
+        filterParams.append(location)
 
-  connection = create_connection()
-  connection.row_factory = sqlite3.Row
-  cursor = connection.cursor()
+    if species:
+        conditions.append("species = (?)")
+        filterParams.append(species)
 
-  if conditions:
-    query += " WHERE " + "AND ".join(conditions)
+    connection = create_connection()
+    connection.row_factory = sqlite3.Row
+    cursor = connection.cursor()
 
-  query += " GROUP BY year_week ORDER BY year_week;"
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
 
-  res = cursor.execute(query, filterParams).fetchall()
-  connection.close()
+    query += " GROUP BY year_week ORDER BY year_week;"
 
-  return [dict(row) for row in res]
+    res = cursor.execute(query, filterParams).fetchall()
+    connection.close()
+
+    return [dict(row) for row in res]
+
+
+@app.get("/analytics/num_sightings_per_region/")
+def getSightingsByInInterval():
+    connection = create_connection()
+    connection.row_factory = sqlite3.Row
+    cursor = connection.cursor()
+
+    res = cursor.execute(
+        """
+    SELECT location, COUNT(*) as count
+    FROM TickSightings
+    GROUP BY location
+  """
+    ).fetchall()
+
+    return [dict(row) for row in res]
