@@ -1,19 +1,14 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 import sqlite3
 from datetime import datetime
 from enum import Enum
 import datetime as dt
 from contextlib import asynccontextmanager
+import os
+import pandas as pd
 
-app = FastAPI()
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    print("Starting up...")
-    # Startup logic here
-    yield
-    print("Shutting down...")
-    # Cleanup logic here
+DB_PATH = "tickSightings.db"
+DATA_PATH = "tickSightings.xlsx"
 
 
 class LocationEnum(str, Enum):
@@ -47,6 +42,7 @@ class IntervalEnum(str, Enum):
     monthly = "monthly"
     yearly = "yearly"
 
+
 class LatinNameEnum(str, Enum):
     IxodesApronophorus = "Ixodes apronophorus"
     IxodesAcuminatus = "Ixodes acuminatus"
@@ -54,22 +50,105 @@ class LatinNameEnum(str, Enum):
     IxodesArboricola = "Ixodes arboricola"
     IxodesCanisuga = "Ixodes canisuga"
 
+
 latinNameDictionary = {
     "Passerine tick": "Dermacentor frontalis",
-    "Southern rodent tick" : "Ixodes acuminatus",
-    "Tree-hole tick" : "Ixodes arboricola",
-    "Fox/badger tick" : "Ixodes canisuga",
-    "Marsh tick" : "Ixodes apronophorus",
+    "Southern rodent tick": "Ixodes acuminatus",
+    "Tree-hole tick": "Ixodes arboricola",
+    "Fox/badger tick": "Ixodes canisuga",
+    "Marsh tick": "Ixodes apronophorus",
 }
 
-def create_connection():
-    connection = sqlite3.connect("database.db")
-    return connection
+
+def CreateDB():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS TickSightings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date DATETIME NOT NULL,
+            location TEXT NOT NULL,
+            species TEXT NOT NULL,
+            latinName TEXT NOT NULL
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    print("DB successfully created")
 
 
-@app.get("/")
-async def root():
-    return {"message": "Hello World"}
+def loadData():
+    if not os.path.exists(DATA_PATH):
+        print("Spreadsheet not found, DB is empty")
+        return
+
+    print("Spreadsheet found, importing data")
+
+    try:
+        df = pd.read_excel(DATA_PATH, engine="openpyxl")
+    except Exception as e:
+        print("Error reading spreadsheet:", e)
+        return
+    
+    # Ensure that location, species and latin name match the required enums, remove entires with non valid locations and species
+    locations = set([item.value for item in LocationEnum])
+    species = set([item.value for item in SpeciesEnum])
+    latinName = set([item.value for item in LatinNameEnum])
+
+    df = df[df["location"].isin(locations)]
+    df = df[df["species"].isin(species)]
+    df = df[df["latinName"].isin(latinName)]
+    
+    # Remove rows with missing values
+    requiredCols = ["date", "location", "species", "latinName"]
+    df = df[requiredCols]
+    df = df.dropna()
+
+    # Ensure provided dates are valid, remove any rows with invalid dates
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date"])
+    
+    # Convert to ISO string
+    df["date"] = df["date"].dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    # Convert dataframe to list of tuples
+    data_tuples = list(df[["date", "location", "species", "latinName"]].itertuples(index=False, name=None))
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.executemany(
+        """
+        INSERT INTO TickSightings (date, location, species, latinName)
+        VALUES (?, ?, ?, ?)
+        """,
+        data_tuples
+    )
+
+    conn.commit()
+    conn.close()
+    print(f"Imported {len(data_tuples)} rows from spreadsheet.")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("Starting up...")
+
+    if not os.path.exists(DB_PATH):
+        print("DB not found, Creating DB")
+        CreateDB()
+        loadData()
+
+    else:
+        print("DB exists. Skipping data load")
+
+    yield
+    print("Shutting down...")
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 @app.get("/sightings")
@@ -78,9 +157,10 @@ def getSightings(
     endDate: datetime | None = None,
     location: LocationEnum | None = None,
     species: SpeciesEnum | None = None,
+    limit: int = Query(default=10, le=500)
 ):
 
-    connection = create_connection()
+    connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
     cursor = connection.cursor()
 
@@ -107,6 +187,8 @@ def getSightings(
 
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
+    
+    query += " LIMIT " + str(limit)
 
     res = cursor.execute(query, filterParams).fetchall()
 
@@ -150,7 +232,7 @@ def getSightingsByInInterval(
         conditions.append("species = (?)")
         filterParams.append(species)
 
-    connection = create_connection()
+    connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
     cursor = connection.cursor()
 
@@ -167,7 +249,7 @@ def getSightingsByInInterval(
 
 @app.get("/analytics/num_sightings_per_region/")
 def getSightingsByInInterval():
-    connection = create_connection()
+    connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
     cursor = connection.cursor()
 
@@ -181,6 +263,7 @@ def getSightingsByInInterval():
 
     return [dict(row) for row in res]
 
+
 @app.post("/sighting")
 def getSightingsByInInterval(
     location: LocationEnum,
@@ -188,17 +271,20 @@ def getSightingsByInInterval(
     latinName: LatinNameEnum,
     date: datetime | None = dt.datetime.now(),
 ):
-  
-  if latinName != latinNameDictionary[species]:
-    raise HTTPException(status_code=409, detail="Conflict: species and latin name do not match")
-    
-  connection = create_connection()
-  connection.row_factory = sqlite3.Row
-  cursor = connection.cursor()
 
-  res = cursor.execute(
-      """
-  INSERT INTO TickSightings (id, date, location, species, latinName)
-  VALUES (?, ?, ?, ?, ?) 
-  """, ["id", date, location, species, latinName]) 
+    if latinName != latinNameDictionary[species]:
+        raise HTTPException(
+            status_code=409, detail="Conflict: species and latin name do not match"
+        )
 
+    connection = sqlite3.connect(DB_PATH)
+    connection.row_factory = sqlite3.Row
+    cursor = connection.cursor()
+
+    res = cursor.execute(
+        """
+  INSERT INTO TickSightings (date, location, species, latinName)
+  VALUES (?, ?, ?, ?) 
+  """,
+        [date, location, species, latinName],
+    )
