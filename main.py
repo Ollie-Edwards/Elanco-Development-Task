@@ -2,8 +2,18 @@ from fastapi import FastAPI, HTTPException
 import sqlite3
 from datetime import datetime
 from enum import Enum
+import datetime as dt
+from contextlib import asynccontextmanager
 
 app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("Starting up...")
+    # Startup logic here
+    yield
+    print("Shutting down...")
+    # Cleanup logic here
 
 
 class LocationEnum(str, Enum):
@@ -37,6 +47,20 @@ class IntervalEnum(str, Enum):
     monthly = "monthly"
     yearly = "yearly"
 
+class LatinNameEnum(str, Enum):
+    IxodesApronophorus = "Ixodes apronophorus"
+    IxodesAcuminatus = "Ixodes acuminatus"
+    DermacentorFrontalis = "Dermacentor frontalis"
+    IxodesArboricola = "Ixodes arboricola"
+    IxodesCanisuga = "Ixodes canisuga"
+
+latinNameDictionary = {
+    "Passerine tick": "Dermacentor frontalis",
+    "Southern rodent tick" : "Ixodes acuminatus",
+    "Tree-hole tick" : "Ixodes arboricola",
+    "Fox/badger tick" : "Ixodes canisuga",
+    "Marsh tick" : "Ixodes apronophorus",
+}
 
 def create_connection():
     connection = sqlite3.connect("database.db")
@@ -156,3 +180,25 @@ def getSightingsByInInterval():
     ).fetchall()
 
     return [dict(row) for row in res]
+
+@app.post("/sighting")
+def getSightingsByInInterval(
+    location: LocationEnum,
+    species: SpeciesEnum,
+    latinName: LatinNameEnum,
+    date: datetime | None = dt.datetime.now(),
+):
+  
+  if latinName != latinNameDictionary[species]:
+    raise HTTPException(status_code=409, detail="Conflict: species and latin name do not match")
+    
+  connection = create_connection()
+  connection.row_factory = sqlite3.Row
+  cursor = connection.cursor()
+
+  res = cursor.execute(
+      """
+  INSERT INTO TickSightings (id, date, location, species, latinName)
+  VALUES (?, ?, ?, ?, ?) 
+  """, ["id", date, location, species, latinName]) 
+
