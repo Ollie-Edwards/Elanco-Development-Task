@@ -29,9 +29,9 @@ uvicorn main:app --reload
 For this project I used FastAPI which is a Python based web framework for building APIs. I paired this with Pandas for dealing with large datasets efficiently, and SQLite for managing complex queries efficiently.
 Postman was used extensively to test the API ensuring that all endpoints produced the expected outputs.
 
-The backend is composed of 4 main endpoints:
+### The backend is composed of 4 main endpoints:
 
-* GET /sightings
+* ` GET /sightings `
   ```
   startDate: datetime (optional),
   endDate: datetime (optional),
@@ -41,7 +41,7 @@ The backend is composed of 4 main endpoints:
   ```
   Returns tick sighting records, optionally filtered by start and end date, location, or species, with a limit on the number of results returned (default = 50).
 
-* POST /sighting
+* ` POST /sighting `
   ```
   location: string,
   species: string,
@@ -51,7 +51,7 @@ The backend is composed of 4 main endpoints:
 
   Adds a new tick sighting record with a specified location, species, and Latin name. The date defaults to the current time if not provided.
 
-* GET /analytics/num_sightings_per_region/
+* ` GET /analytics/num_sightings_per_region `
   ```
   location: string,
   species: string,
@@ -60,7 +60,7 @@ The backend is composed of 4 main endpoints:
   ```
   Returns the total number of tick sightings for each region.
 
-* GET /analytics/num_sightings_by_interval/
+* `GET /analytics/num_sightings_by_interval`
   ```
   interval: ["daily", "weekly", "monthly", "yearly"],
   location: string (optional),
@@ -113,4 +113,5 @@ When data is added to the database, species and latinName are checked to ensure 
 * Add a logging for errors and inconsistencies
 
   Adding logging for errors and data inconsistencies would allow me to record issues like invalid dates, species-Latin name mismatches, or database failures, making it easier to monitor the system, debug problems, and check the performance of the API.
+
 
