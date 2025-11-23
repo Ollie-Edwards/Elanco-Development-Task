@@ -70,7 +70,7 @@ def CreateDB():
             date DATETIME NOT NULL,
             location TEXT NOT NULL,
             species TEXT NOT NULL,
-            latinName TEXT NOT NULL
+            latinName TEXT NOT NULL,
 
             UNIQUE(date, location, species, latinName)
         );
@@ -113,8 +113,16 @@ def loadData():
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"])
 
+    # Remove unreasonable dates (more than 50 years ago, and in the future)
+    today = pd.Timestamp.today()
+    fifty_years_ago = today - pd.DateOffset(years=50)
+    df = df[(df["date"] >= fifty_years_ago) & (df["date"] <= today)]
+
     # Convert to ISO string
     df["date"] = df["date"].dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    # Remove duplicates from the dataset
+    df = df.drop_duplicates(subset=["date", "location", "species", "latinName"])
 
     # Convert dataframe to list of tuples
     data_tuples = list(
@@ -283,8 +291,18 @@ def addSighting(
     latinName: LatinNameEnum,
     date: datetime | None = None,
 ):
+    now = dt.datetime.now()
+
     if date is None:
-        date = dt.datetime.now()
+        date = now
+
+    else:
+        if date > now:
+            raise HTTPException(status_code=400, detail="Date cannot be in the future.")
+
+        fiftyYearsAgo = now - dt.timedelta(days=50 * 365)
+        if date < fiftyYearsAgo:
+            raise HTTPException(status_code=400, detail="Invalid Date")
 
     if latinName != latinNameDictionary[species]:
         raise HTTPException(
