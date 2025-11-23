@@ -59,6 +59,15 @@ latinNameDictionary = {
     "Marsh tick": "Ixodes apronophorus",
 }
 
+def connectToDB():
+    try:
+        connection = sqlite3.connect(DB_PATH)
+    except sqlite3.Error:
+        raise HTTPException(
+            status_code=500,
+            detail="Internal Server Error - Database failed to connect."
+        )
+    return connection
 
 def CreateDB():
     conn = sqlite3.connect(DB_PATH)
@@ -175,7 +184,7 @@ def getSightings(
     limit: int = Query(default=10, le=500),
 ):
 
-    connection = sqlite3.connect(DB_PATH)
+    connection = connectToDB()
     connection.row_factory = sqlite3.Row
     cursor = connection.cursor()
 
@@ -203,13 +212,11 @@ def getSightings(
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
 
-    query += " LIMIT " + str(limit)
+    query += " LIMIT (?)"
+    filterParams.append(str(limit))
 
     res = cursor.execute(query, filterParams).fetchall()
     connection.close()
-
-    if not res:
-        raise HTTPException(status_code=404, detail="No sightings were found")
 
     return [dict(row) for row in res]
 
@@ -249,7 +256,7 @@ def getSightingsByInterval(
         conditions.append("species = (?)")
         filterParams.append(species)
 
-    connection = sqlite3.connect(DB_PATH)
+    connection = connectToDB()
     connection.row_factory = sqlite3.Row
     cursor = connection.cursor()
 
@@ -261,15 +268,12 @@ def getSightingsByInterval(
     res = cursor.execute(query, filterParams).fetchall()
     connection.close()
 
-    if not res:
-        raise HTTPException(status_code=404, detail="No sightings intervals were found")
-
     return [dict(row) for row in res]
 
 
 @app.get("/analytics/num_sightings_per_region/")
 def getSightingsPerRegion():
-    connection = sqlite3.connect(DB_PATH)
+    connection = connectToDB()
     connection.row_factory = sqlite3.Row
     cursor = connection.cursor()
 
@@ -298,18 +302,25 @@ def addSighting(
 
     else:
         if date > now:
-            raise HTTPException(status_code=400, detail="Date cannot be in the future.")
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid Date - Date cannot be in the future."
+            )
 
-        fiftyYearsAgo = now - dt.timedelta(days=50 * 365)
+        fiftyYearsAgo = now - dt.timedelta(days=50*365)
         if date < fiftyYearsAgo:
-            raise HTTPException(status_code=400, detail="Invalid Date")
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid Date - Date cannot be more than 50 years ago"
+            )
+        
 
     if latinName != latinNameDictionary[species]:
         raise HTTPException(
             status_code=409, detail="Conflict: species and latin name do not match"
         )
 
-    connection = sqlite3.connect(DB_PATH)
+    connection = connectToDB()
     connection.row_factory = sqlite3.Row
     cursor = connection.cursor()
 
